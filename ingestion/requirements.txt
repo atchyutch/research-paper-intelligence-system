@@ -1,0 +1,19 @@
+langchain>=0.2
+langchain-community>=0.2
+
+# embeddings (free)
+langchain-huggingface>=0.0.3
+sentence-transformers>=2.6
+
+# LLM (free local)
+langchain-ollama>=0.1.0
+
+# vector db (pinecone)
+pinecone>=5.0
+langchain-pinecone>=0.1.0
+
+# pdf/text extraction
+pypdf>=4.2
+
+# token counting for budgets
+tiktoken>=0.7
