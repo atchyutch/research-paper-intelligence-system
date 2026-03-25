@@ -77,16 +77,27 @@ jobs:
         with:
           python-version: "3.12"
 
-      # Install all your pip packages + test dependencies
-      # Same requirements.txt that Docker uses
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pytest httpx
 
-      # Run pytest — discovers all test_*.py files in tests/
-      # -v shows each test name individually
-      # --tb=short gives shorter error messages on failure
       - name: Run tests
-        run: pytest tests/ -v --tb=short
+        run: |
+          export PYTHONPATH=$PYTHONPATH:${{ github.workspace }}
+          pytest tests/ -v --tb=short
+
+#      # Install all your pip packages + test dependencies
+#      # Same requirements.txt that Docker uses
+#      - name: Install dependencies
+#        run: |
+#          python -m pip install --upgrade pip
+#          pip install -r requirements.txt
+#          pip install pytest httpx
+#
+#      # Run pytest — discovers all test_*.py files in tests/
+#      # -v shows each test name individually
+#      # --tb=short gives shorter error messages on failure
+#      - name: Run tests
+#        run: pytest tests/ -v --tb=short
