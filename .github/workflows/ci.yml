@@ -51,6 +51,8 @@ jobs:
       MYSQL_PORT: 3306
       MYSQL_DB: test_rpis
       JWT_SECRET: test-secret-key-for-ci
+      JWT_ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: 30
       OLLAMA_HOST: http://localhost:11434
       OLLAMA_MODEL: qwen2.5:3b
       # secrets.X pulls values you stored in GitHub Settings → Secrets
