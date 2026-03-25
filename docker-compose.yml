@@ -1,0 +1,99 @@
+services:
+  db:
+     # Image pulls a prebuilt image from the docker hub.
+     # There is nothing custom in our mysql database so we use an esitsing image
+    image: mysql:8.0
+    # Give it a readable name for the container
+    container_name: rpis-mysql
+    # Environment variables needed for our myslq server to start
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: ${MYSQL_DB:-research_paper_db}
+      MYSQL_USER: ${MYSQL_USER:-rpis_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-rpis_password}
+    ports:
+      #Port mapping machine_port:container_port
+      # We need this 3307 if we ever want to connect our docker mysql with our local mac backend.
+      # Basically if we run through pycharm we can use this port of 3307 to connect to the docker mysql.
+      - "3307:3306"
+    volumes:
+      # This is to set up volumes so our data remains in the mysql database even when our container is disposed.
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      # Docker pings mysql every 10 secs for its health-check up
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+#  ollama:
+#    #Image pulls a prebuilt ollama image from the docker hub.
+#    image: ollama/ollama:latest
+#    container_name: rpis-ollama
+#
+#    # We don't need ollama env vars because we don't use them to create a server like we use
+#    # mysql env vars to create a db server
+#
+#    # Port 11434 is Ollama's default API port.
+#    # Mapped so you can also access it from your Mac for debugging.
+#    ports:
+#      - "11434:11434"
+#    volumes:
+#      - ollama_data:/root/.ollama
+#    healthcheck:
+#      test: [ "CMD-SHELL", "cat < /dev/null > /dev/tcp/localhost/11434 || exit 1" ]
+#      interval: 10s
+#      timeout: 5s
+#      retries: 5
+
+  backend:
+    build: #"build" means "build an image from a Dockerfile"
+      context: .
+      dockerfile: Dockerfile
+    container_name: rpis-backend
+    ports:
+      - "8000:8000"
+    environment:
+      MYSQL_USER: ${MYSQL_USER:-rpis_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-rpis_password}
+      MYSQL_HOST: db
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-research_paper_db}
+
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2}
+
+      PINECONE_API_KEY: ${PINECONE_API_KEY}
+      PINECONE_INDEX_NAME: ${PINECONE_INDEX_NAME}
+      EMBEDDINGS_MODEL: ${EMBEDDINGS_MODEL}
+
+      R2_AWS_S3_ENDPOINT: ${R2_AWS_S3_ENDPOINT}
+      R2_ACCESS_TOKEN: ${R2_ACCESS_KEY}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY}
+      R2_BUCKET_NAME: ${R2_BUCKET_NAME}
+
+      JWT_SECRET_KEY: ${JWT_SECRET}
+
+    depends_on:
+      # This is to tell backend service that our db and ollama service need to be healthy for it to start and work.
+        db:
+          condition: service_healthy
+    volumes:
+      - .:/app
+      - /app/.venv
+    command: uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload
+
+
+volumes: #Named volumes - basically we are creating them here and using them in the top
+  mysql_data:
+
+
+
+
+
+
+
+
+
+
+

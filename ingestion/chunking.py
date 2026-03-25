@@ -7,12 +7,12 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_pinecone import PineconeVectorStore
 from sqlalchemy import Boolean
 from sqlalchemy.exc import IntegrityError
-
+from sqlalchemy.orm import Session
 
 from backend.app.api.deps import get_db
 
 from backend.app.api.v1.endpoints.auth import get_current_user
-from backend.app.api.v1.endpoints.document_api import get_r2_client
+from backend.app.core.r2_client import get_r2_client
 from backend.app.core.config import settings
 from backend.app.db.base import Documents, Users
 import fitz
@@ -238,7 +238,7 @@ def structure_aware_chunking(retrieved_blocks: List[Dict[str, Any]]) -> List[Dic
     return chunks
 
 
-async def process_documents(document_id, client = Depends(get_r2_client), db=Depends(get_db), user=Depends(get_current_user)):
+def process_documents(document_id, client, db:Session, user):
     document = (
         db.query(Documents)
         .filter(

@@ -1,0 +1,74 @@
+name: CI Pipeline
+
+on:
+  # Run on every push to main branch
+  push:
+    branches: [ main ]
+
+  # Run on every pull request targeting main
+  pull_request:
+    branches: [ main ]
+  jobs:
+    test:
+      runs-on: ubuntu-latest
+      services:
+        mysql:
+          image: mysql:8.0
+          env:
+            MYSQL_ROOT_PASSWORD: testpassword
+            MYSQL_DATABASE: test_rpis
+            MYSQL_USER: test_user
+            MYSQL_PASSWORD: test_password
+            ports:
+              - 3306:3306
+            # Wait for MySQL to be ready before running tests
+            options: >-
+              --health-cmd="mysqladmin ping -h localhost"
+              --health-interval=10s
+              --health-timeout=5s
+              --health-retries=5
+      env:
+        MYSQL_USER: test_user
+        MYSQL_PASSWORD: test_password
+        MYSQL_HOST: localhost
+        MYSQL_PORT: 3306
+        MYSQL_DB: test_rpis
+        JWT_SECRET: test-secret-key-for-ci
+        OLLAMA_HOST: http://localhost:11434
+        OLLAMA_MODEL: qwen2.5:3b
+        PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
+        PINECONE_INDEX_NAME: ${{ secrets.PINECONE_INDEX_NAME }}
+        EMBEDDINGS_MODEL: intfloat/e5-large-v2
+        R2_AWS_S3_ENDPOINT: ${{ secrets.R2_AWS_S3_ENDPOINT }}
+        R2_ACCESS_TOKEN: ${{ secrets.R2_ACCESS_TOKEN }}
+        R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+
+      steps:
+        # STEP 1: Check out your code from the repo.
+        # This is a pre-built action from GitHub.
+        # Without this, the VM has no access to your code.
+        - name: Checkout code
+          uses: actions/checkout@v4
+
+        # STEP 2: Install Python 3.12 on the VM.
+        # The VM comes with some Python but we want a specific version.
+        - name: Set up Python 3.12
+          uses: actions/setup-python@v5
+          with:
+            python-version: "3.12"
+
+        # STEP 3: Install your dependencies.
+        # Same requirements.txt that Docker uses.
+        - name: Install dependencies
+          run: |
+            python -m pip install --upgrade pip
+            pip install -r requirements.txt
+            pip install pytest httpx
+
+        # STEP 4: Run the tests.
+        # pytest discovers and runs all test files in tests/
+        # -v = verbose (shows each test name)
+        # --tb=short = shorter error tracebacks
+        - name: Run tests
+          run: pytest tests/ -v --tb=short

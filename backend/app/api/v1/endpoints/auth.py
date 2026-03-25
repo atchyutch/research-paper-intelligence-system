@@ -12,13 +12,13 @@ from fastapi.security import OAuth2PasswordBearer
 
 import hashlib
 
-auth_router = APIRouter()
+auth_router = APIRouter(prefix = "/auth")
 
 # Retrieves the token from the url header and gives to us
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login")
 
 
-@auth_router.post("/create_user")
+@auth_router.post("/create_user", status_code=status.HTTP_201_CREATED)
 async def create_user(first_name:str, last_name:str, email:str, password:str,
                       response_model:UserRequest, db = Depends(get_db), status_code=status.HTTP_201_CREATED):
     hashed_password = password_hasher(password)
@@ -30,15 +30,16 @@ async def create_user(first_name:str, last_name:str, email:str, password:str,
     )
     try:
         db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
     except IntegrityError as e:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    finally:
-        db.commit()
-    return {"Status": "Success"}
+
+    return {"Status": status_code, "message": f"User created {new_user.first_name} {new_user.last_name}"}
 
 
-@auth_router.post("/login")
+@auth_router.post("/login", status_code=status.HTTP_200_OK)
 async def login(email:str, password:str, db = Depends(get_db)):
     try:
         retrieved_user = db.query(Users).filter(Users.email == email).first()

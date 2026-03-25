@@ -1,3 +1,4 @@
+import hashlib
 from typing import List
 from uuid import uuid4
 
@@ -9,14 +10,17 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from backend.app.api.deps import get_db
 from backend.app.api.v1.endpoints.auth import get_current_user
 import boto3
+from backend.app.core.r2_client import get_r2_client
 
 from backend.app.core.config import settings
-from backend.app.db.base import Documents
+from backend.app.db.base import Documents, Chunks
 from backend.app.rag.schemas.document_schemas import DocumentResponse
+from ingestion.chunking import process_documents
+from ingestion.embedding import embeddings_inititation
 
 document_router = APIRouter(prefix="/documents")
 
-@document_router.post("/multiple/upload")
+@document_router.post("/multiple/upload", status_code=201)
 async def multiple_upload_documents(files: List[UploadFile] = File(),
                                     current_user = Depends(get_current_user), db=Depends(get_db)):
     if not files:
@@ -36,7 +40,22 @@ async def multiple_upload_documents(files: List[UploadFile] = File(),
             meta = pdf_doc.metadata or {}
             pdf_doc.close()
 
-            # Generate a safe r2_key for each document for us to access in the future
+            file_hash = hashlib.sha256(data).hexdigest()
+
+            existing = db.query(Documents).filter(
+                Documents.user_id == current_user.user_id,
+                Documents.file_hash == file_hash
+            ).first()
+
+            if existing:
+                results.append({
+                    "filename": file.filename,
+                    "status": "Skipped",
+                    "reason": "Duplicate file already uploaded"
+                })
+                continue # Continue to the next file
+
+                # Generate a safe r2_key for each document for us to access in the future
             doc_uuid = str(uuid4())
             r2_key = f"document/{current_user.user_id}/{doc_uuid}"
 
@@ -55,24 +74,28 @@ async def multiple_upload_documents(files: List[UploadFile] = File(),
                 file_name=file.filename,
                 document_link=r2_key,
                 page_count=page_count,
-                size_bytes=len(data)
+                size_bytes=len(data),
+                file_hash = file_hash
             )
 
             db.add(new_doc)
             db.commit()
             db.refresh(new_doc)
-            results.append({
-                "filename": new_doc.file_name,
-                "status": True
-            })
+            results.append(DocumentResponse(
+                document_id = new_doc.document_id,
+                user_id = new_doc.user_id,
+                created_at = new_doc.created_at,
+                file_name = new_doc.file_name,
+                page_count = new_doc.page_count
+            ))
         except HTTPException as e:
-                db.rollback()
-                results.append({
-                    "filename": getattr(file, "filename", None),
-                    "status": "Failed",
-                    "Reason" : str(e)
-                })
-                raise HTTPException(status_code=500, detail="Failed to store document metadata")
+            db.rollback()
+            results.append({
+                "filename": getattr(file, "filename", None),
+                "status": "Failed",
+                "Reason" : str(e)
+            })
+            raise HTTPException(status_code=500, detail="Failed to store document metadata")
         except IntegrityError as e:
             db.rollback()
             results.append({
@@ -82,6 +105,14 @@ async def multiple_upload_documents(files: List[UploadFile] = File(),
             })
             raise HTTPException(status_code=500, detail="Failed to store the document details, could be a "
                                                         "constraint issue")
+        except SQLAlchemyError as e:
+            db.rollback()
+            results.append({
+                "filename": getattr(file, "filename", None),
+                "status": "Failed",
+                "Reason": str(e)
+            })
+            raise HTTPException(status_code=409, detail="Failed to store the document details, could be because a duplicate")
     return results
 
 
@@ -93,20 +124,6 @@ def validate_file_type(file: UploadFile=File(...)):
         raise HTTPException(status_code = status.HTTP_406_NOT_ACCEPTABLE, detail="File has be of pdf extension.")
     return True
 
-
-def get_r2_client(r2_endpoint:  str, access_key:str, secret_key:str):
-    try:
-        client_retrieved = boto3.client(
-            "s3",
-            endpoint_url = r2_endpoint,
-            aws_access_key_id = access_key,
-            aws_secret_access_key = secret_key,
-            region_name = "us-east-1"
-        )
-    except ClientError as e:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail = str(e))
-
-    return client_retrieved
 
 @document_router.get("/")
 def get_documents(user=Depends(get_current_user), db=Depends(get_db)):
@@ -134,7 +151,7 @@ def get_single_document(doc_id, user=Depends(get_current_user), db=Depends(get_d
     :return: Document Response with relevant data
     """
     try:
-        doc = db.Query(Documents).filter(Documents.document_id == doc_id,
+        doc = db.query(Documents).filter(Documents.document_id == doc_id,
                                    Documents.user_id == user.user_id ).one()
         docResponse = DocumentResponse(
             document_id=doc.document_id,
@@ -155,8 +172,29 @@ def get_single_document(doc_id, user=Depends(get_current_user), db=Depends(get_d
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
 
 
-@document_router.post("/delete/{doc_id}")
-def delete_single_doc(doc_id, user=Depends(get_current_user), db=Depends(get_db)):
-    pass
-    #TODO
-    # Delete from R2 and Pinecone
+@document_router.post("/delete/{document_id}")
+def delete_single_doc(document_id, user=Depends(get_current_user), db=Depends(get_db)):
+    try:
+        client = get_r2_client(settings.R2_AWS_S3_ENDPOINT, settings.R2_ACCESS_TOKEN, settings.R2_SECRET_ACCESS_KEY)
+        doc_obj = db.query(Documents).filter(Documents.document_id == document_id, Documents.user_id == user.user_id).one()
+        client.delete_object(Bucket=settings.R2_BUCKET_NAME, Key=doc_obj.document_link)
+
+        chunks = db.query(Chunks).filter(Chunks.document_id == doc_obj.document_id).all()
+
+        pinecone_ids = []
+        for each in chunks:
+            pinecone_ids.append(each.pinecone_id)
+        if pinecone_ids:
+            vector_store = embeddings_inititation()
+            vector_store.delete(pinecone_ids=pinecone_ids)
+        db.query(Chunks).filter(Chunks.document_id == doc_obj.document_id).delete()
+        db.commit()
+    except SQLAlchemyError as e:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@document_router.post("/{document_id}/process")
+def trigger_processing(document_id: int, user=Depends(get_current_user), db=Depends(get_db)):
+    client = get_r2_client(settings.R2_AWS_S3_ENDPOINT, settings.R2_ACCESS_TOKEN, settings.R2_SECRET_ACCESS_KEY)
+    return process_documents(document_id, client, db, user)

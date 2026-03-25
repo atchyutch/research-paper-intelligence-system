@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     PINECONE_API_KEY: str | None = None
     PINECONE_INDEX_NAME: str = "rpis-index"
     OLLAMA_MODEL: str = "qwen2.5:3b"
+    OLLAMA_HOST: str
     EMBEDDINGS_MODEL:str = "intfloat/e5-large-v2"
 
     R2_ACCESS_TOKEN: str | None = None

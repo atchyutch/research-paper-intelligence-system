@@ -31,6 +31,7 @@ class Documents(Base):
     document_link:str = Column(String(1024), nullable=False) # R2_key for the document
     page_count:int = Column(Integer, nullable=False)
     size_bytes:int = Column(Integer, nullable=True)
+    file_hash:str = Column(String(100), nullable=True, unique=True) ##Added a new column
 
 
     user = relationship("Users", back_populates="documents")

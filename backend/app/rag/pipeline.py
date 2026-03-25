@@ -1,73 +1,170 @@
-from typing import List, Tuple
+from typing import List, Tuple, Any
 
 from fastapi import Depends
-from langchain_core.documents import Document
+import ollama
+from sqlalchemy.orm import Session
+from ollama import Client
 
 from backend.app.api.deps import get_db
 from backend.app.api.v1.endpoints.auth import get_current_user
-from backend.app.db.base import Chunks
-from ingestion.embedding import embeddings_inititation
-from langchain_community.retrievers import BM25Retriever
-from sqlalchemy import select
+# from backend.app.api.v1.endpoints.conversation_logic import conversation_router
+from backend.app.core.config import settings
+
+import re
+
+from backend.app.rag.context_retrieval import get_conversation_document_ids, retrieve_top_chunks, \
+    lexical_retrieval_top_chunks, reciprocal_ranking_fusion, get_document_names, conversational_history
+from backend.app.rag.schemas.conversation import AgentResponse
 
 
-def retrieve_top_chunks(query, user = Depends(get_current_user), k: int = 6) -> List[Tuple[Document, float]]:
-    vector_store = embeddings_inititation()
+def build_context(ranked_rrf, conversation_history, document_names, query):
+    """
+    Build the context for the agent
+    :param ranked_rrf: Ranked final chunks
+    :param conversation_history: Previous conversation upto last 15 messages
+    :param document_names: Document names associated in the conversation
+    :param query: The latest query sent by the user
+    :return: The final prompt and the context blocks constructed.
+    """
+    context_blocks = []
 
-    results = vector_store.similarity_search_with_score(
-        query=query,
-        k=k,
-        filter={"user_id":user.user_id}
+    for i, chunk in enumerate(ranked_rrf, start=1):
+
+        doc = chunk["doc"]
+        doc_id = doc.metadata.get("document_id")
+        page = doc.metadata.get("page", "Unknown")
+        section = doc.metadata.get("section", "Unknown")
+        content = doc.page_content
+
+        doc_name = document_names.get(doc_id, "Unknown document")
+
+        curr_source = (
+            f"[{i}] Document: {doc_name} | Section: {section} | Page: {page}\n"
+            f"{content}"
+        )
+
+        context_blocks.append(curr_source)
+
+    context_chunks = "\n\n".join(context_blocks)
+
+    system_message = (
+        "You are a research paper assistant. Your job is to answer questions using ONLY the context provided below. "
+        "Do not use any outside knowledge.\n\n"
+        "Rules:\n"
+        "- Cite your sources using [1], [2], etc. matching the chunk numbers below\n"
+        "- Never fabricate citations\n"
+        "- Prefer citing multiple sources when relevant\n"
+        "- If the context does not contain enough information to answer, say "
+        "\"I don't have enough information in the provided documents to answer this.\"\n"
+        "- Be concise and direct\n"
+        "- Reference the document name, section, and page when relevant\n\n"
+        f"Context:\n{context_chunks}"
     )
-    return results
+
+    final_message = [{"role": "system", "content": system_message}]
+
+    for message in conversation_history:
+        final_message.append({
+            "role": message.role,
+            "content": message.content,
+        })
+
+    final_message.append({
+        "role": "user",
+        "content": query
+    })
+
+    return final_message, context_blocks
 
 
-def lexical_retrieval_top_chunks(query, user = Depends(get_current_user), db = Depends(get_db)):
-
-    stmt = select(Chunks).where(Chunks.user_id == user.user_id)
-    documents = []
-    for chunk in db.execute(stmt).scalars():
-        doc = Document(
-            page_content=chunk.chunk_content,
-            metadata={
-                "document_id": chunk.document_id,
-                "pinecone_id": chunk.pinecone_id,
-                "chunk_index": chunk.chunk_index,
-                "user_id": chunk.user_id,
-                "section": chunk.section,
-                "page": chunk.page,
-                "char_count": chunk.char_count
+def call_llm(messages_list) -> Any:
+    """
+    Call the llm with the context
+    :param messages_list:
+    :return: The agent's response that is not parsed
+    """
+    try:
+        client = Client(host=settings.OLLAMA_HOST)
+        response = client.chat(
+            model=settings.OLLAMA_MODEL,
+            messages=messages_list,
+            options={
+                "temperature": 0.4
             }
         )
-        documents.append(doc)
+    except Exception as e:
+        raise RuntimeError("Error calling in the Ollama model, check"
+                           "if the ollama model is downloaded locally and running.")
+    return response["message"]["content"]
 
-    lexical_retriever = BM25Retriever.from_documents(documents)
+def call_llm_with_stream(messages_list):
+    try:
+        client = Client(host=settings.OLLAMA_HOST)
+        response = client.chat(
+            model=settings.OLLAMA_MODEL,
+            messages=messages_list,
+            options={
+                "temperature": 0.4
+            },
+            stream = True
+        )
 
-    lexical_retriever.k = 4
-    results = lexical_retriever.invoke(query)
+        for token in response["message"]["content"]:
+            yield token
 
-    return results
+    except Exception as e:
+        raise RuntimeError("Error calling in the Ollama model, check"
+                       "if the ollama model is downloaded locally and running.")
 
-# Since semantic gives a relevancy score and lexical does not we will normalise them through a ranking score.
-def reciprocal_ranking_fusion(semantic_results: List[Tuple[Document,float]], lexical_results: List[Document], k: int = 60):
-    final_scores = {}
-    for local_rank,(each, semantic_score) in enumerate(semantic_results, start=1):
-        rrf_rank_semantic = 1/(k + local_rank)
-        pid_semantic = each.metadata["pinecone_id"]
-        final_scores[pid_semantic] = {"doc": each, "ranked_score": rrf_rank_semantic}
+def parse_citations(response, ranked_rrf, document_names) -> List[Any]:
+    final_list = []
+    seen = set()
+    citation_list = re.findall(r'\[(\d+)\]', response)
+    for every in citation_list:
+        every = int(every)
+        if every in seen or every < 1 or every > len(ranked_rrf):
+            continue
+        seen.add(every)
+        curr_chunk = ranked_rrf[every - 1]
+        doc = curr_chunk["doc"]
+        doc_id = doc.metadata.get("document_id")
+        doc_name = document_names.get(doc_id, "Unknown Document")
+        section = doc.metadata.get("section", "Unknown")
+        page = doc.metadata.get("page", "Unknown")
+        final_list.append({"Citation Number": every, "Document":
+            doc_name,"Section":section, "Page": page ,"DocumentID":doc_id})
+    return final_list
 
-    for local_rank, each in enumerate(lexical_results):
-        rrf_rank_lexical = 1/(k + local_rank)
-        pid_lexical = each.metadata["pinecone_id"]
 
-        if pid_lexical in final_scores:
-            final_scores[pid_lexical]["ranked_score"] += rrf_rank_lexical
-        else:
-            final_scores[pid_lexical] = {"doc":each, "ranked_score": rrf_rank_lexical}
+def generate_rag_response(conversation_id, query, db:Session, user_id):
+    document_ids = get_conversation_document_ids(conversation_id, db)
+    document_names = get_document_names(document_ids, db)
+    semantic_results = retrieve_top_chunks(query, document_ids, user_id)
+    lexical_results = lexical_retrieval_top_chunks(query, document_ids, user_id, db)
+    result_rrf = reciprocal_ranking_fusion(semantic_results, lexical_results)
+    history = conversational_history(db, conversation_id)
+    final_context_message, context_blocks = build_context(result_rrf, history, document_names, query)
+    response_llm = call_llm(final_context_message)
+    parsed_citations = parse_citations(response_llm, result_rrf, document_names)
 
-    ranked = sorted(final_scores.values(), key=lambda x: x["ranked_score"], reverse=True)
+    return response_llm, parsed_citations
 
-    return ranked
+
+def generate_rag_responseStream(conversation_id, query, db:Session, user_id):
+    document_ids = get_conversation_document_ids(conversation_id, db)
+    document_names = get_document_names(document_ids, db)
+    semantic_results = retrieve_top_chunks(query, document_ids, user_id)
+    lexical_results = lexical_retrieval_top_chunks(query, document_ids, user_id, db)
+    result_rrf = reciprocal_ranking_fusion(semantic_results, lexical_results)
+    history = conversational_history(db, conversation_id)
+    final_context_message, context_blocks = build_context(result_rrf, history, document_names, query)
+
+    return final_context_message, context_blocks, result_rrf
+
+
+
+
+
 
 
 

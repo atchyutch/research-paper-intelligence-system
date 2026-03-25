@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List
+from typing import List, Dict, Any
 
 import pydantic
 from pydantic import BaseModel, Field
@@ -18,9 +18,9 @@ class AddDocumentRequest(BaseModel):
 
 class MessageCreate(BaseModel):
     content:str
-    role:str = "user"
-    conversation_id: int = Field("The conversation to which this message belongs")
-    created_at: datetime = Field("The message's creation time and date")
+    # role:str = "user"
+    # conversation_id: int = Field("The conversation to which this message belongs")
+    # created_at: datetime = Field("The message's creation time and date")
 
 class MessageResponse(BaseModel):
     conversation_id: int = Field("The conversation's representation")
@@ -30,3 +30,10 @@ class MessageResponse(BaseModel):
     created_at:datetime = Field("The message's creation time and date")
 
 
+class AgentResponse(BaseModel):
+    conversation_id: int = Field("The conversation's representation")
+    message_id: int = Field("Send the id to the frontend")
+    response_content: str = Field ("The response content")
+    sources_list: List[Dict[str, Any]] = Field("The citations")
+    role: str = "user"
+    created_at: datetime = Field("The message's creation time and date")

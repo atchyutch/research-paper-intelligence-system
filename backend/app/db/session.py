@@ -17,7 +17,6 @@ url = URL.create(
 
 # Initiate the connection
 engine = create_engine(url, echo=False)
-print("DATABASE_URL =", url)
 
 # Create the instance we are looking for
 sessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
