@@ -15,12 +15,17 @@ import hashlib
 auth_router = APIRouter(prefix = "/auth")
 
 # Retrieves the token from the url header and gives to us
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 
 @auth_router.post("/create_user", status_code=status.HTTP_201_CREATED)
 async def create_user(first_name:str, last_name:str, email:str, password:str,
-                      response_model:UserRequest, db = Depends(get_db), status_code=status.HTTP_201_CREATED):
+                      db = Depends(get_db), status_code=status.HTTP_201_CREATED):
+    if not first_name.strip() or not last_name.strip() or not email.strip() or not password.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="All fields are required"
+        )
     hashed_password = password_hasher(password)
     new_user = Users(
         first_name=first_name,
@@ -43,6 +48,13 @@ async def create_user(first_name:str, last_name:str, email:str, password:str,
 async def login(email:str, password:str, db = Depends(get_db)):
     try:
         retrieved_user = db.query(Users).filter(Users.email == email).first()
+
+        if not retrieved_user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid credentials"
+            )
+
         retrieved_password = retrieved_user.hashed_password
 
         if bcrypt.checkpw(password.encode("utf-8"), retrieved_password.encode("utf-8")):

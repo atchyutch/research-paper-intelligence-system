@@ -28,23 +28,23 @@ THE PATTERN:
 
 ##User Registration tests
 def test_register_success(client, user_data):
-    response = client.post("/auth/create_user", json=user_data)
+    response = client.post("/api/v1/auth/create_user", params=user_data)
     assert response.status_code == 201
     result = response.json()
     assert "message" in result
 
 
 def test_duplicate_email(client, user_data):
-    response = client.post("/auth/create_user", json=user_data)
+    response = client.post("/api/v1/auth/create_user", params=user_data)
     assert response.status_code == 201
 
-    try_again = client.post("/auth/create_user", json=user_data)
+    try_again = client.post("/api/v1/auth/create_user", params=user_data)
     assert try_again.status_code == 400
 
 
 def test_missing_email(client, user_data):
     user_data["email"] = ""
-    response = client.post("/auth/create_user", json=user_data)
+    response = client.post("/api/v1/auth/create_user", params=user_data)
     assert response.status_code == 400
 
 
@@ -53,19 +53,19 @@ def test_check_password(client, registered_user):
     """
     Check with both right and wrong passwords
     """
-    res = client.post("/auth/login", json={"email": registered_user["email"],
+    res = client.post("/api/v1/auth/login", params={"email": registered_user["email"],
                                            "password": registered_user["password"]})
     assert res.status_code == 200
     data = res.json()
     assert "token" in data
     assert len(data["token"]) > 0
 
-    res = client.post("/auth/login", json={"email": registered_user["email"], "password": "Wrongbclwedb"})
+    res = client.post("/api/v1/auth/login", params={"email": registered_user["email"], "password": "Wrongbclwedb"})
     assert res.status_code == 401
 
 
 def test_non_existent_user(client):
-    res = client.post("/auth/login", json={
+    res = client.post("/api/v1/auth/login", params={
         "email": "noone@gmail.com",
         "password": "nonexistent"
     })

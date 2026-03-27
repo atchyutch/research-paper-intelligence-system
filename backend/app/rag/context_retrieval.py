@@ -6,13 +6,12 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from backend.app.db.base import Chunks, Messages, ConversationDocuments, Documents
-from ingestion.embedding import embeddings_inititation
-from langchain_community.retrievers import BM25Retriever
 from sqlalchemy import select
 from backend.app.rag.schemas.conversation import MessageResponse
 
 
 def retrieve_top_chunks(query, document_ids: List[int], user_id, k: int = 6) -> List[Tuple[Document, float]]:
+    from ingestion.embedding import embeddings_inititation
     vector_store = embeddings_inititation()
 
     results = vector_store.similarity_search_with_score(
@@ -25,6 +24,7 @@ def retrieve_top_chunks(query, document_ids: List[int], user_id, k: int = 6) -> 
 
 
 def lexical_retrieval_top_chunks(query,document_ids:List[int], user_id, db:Session):
+    from langchain_community.retrievers import BM25Retriever
     stmt = select(Chunks).where(Chunks.user_id == user_id,
                                 Chunks.document_id.in_(document_ids))
     documents = []

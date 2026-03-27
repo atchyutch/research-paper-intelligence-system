@@ -15,7 +15,6 @@ from backend.app.core.r2_client import get_r2_client
 from backend.app.core.config import settings
 from backend.app.db.base import Documents, Chunks
 from backend.app.rag.schemas.document_schemas import DocumentResponse
-from ingestion.chunking import process_documents
 from ingestion.embedding import embeddings_inititation
 
 document_router = APIRouter(prefix="/documents")
@@ -196,5 +195,6 @@ def delete_single_doc(document_id, user=Depends(get_current_user), db=Depends(ge
 
 @document_router.post("/{document_id}/process")
 def trigger_processing(document_id: int, user=Depends(get_current_user), db=Depends(get_db)):
+    from ingestion.chunking import process_documents
     client = get_r2_client(settings.R2_AWS_S3_ENDPOINT, settings.R2_ACCESS_TOKEN, settings.R2_SECRET_ACCESS_KEY)
     return process_documents(document_id, client, db, user)

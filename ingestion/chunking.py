@@ -3,7 +3,6 @@ from typing import Dict, List, Any
 
 from fastapi import Depends, HTTPException, status
 from langchain_core.documents import Document
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_pinecone import PineconeVectorStore
 from sqlalchemy import Boolean
 from sqlalchemy.exc import IntegrityError
@@ -187,6 +186,7 @@ def classify_block(cleaned_pages: List[Dict[str,Any]]):
 
 
 def recursive_splitter(paragraph: str) -> List[str]:
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
     text_splitter = RecursiveCharacterTextSplitter(chunk_size = 1200, overlap = 200 )
     pieces = text_splitter.split_text(paragraph)
 

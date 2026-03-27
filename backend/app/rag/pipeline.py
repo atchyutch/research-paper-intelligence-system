@@ -3,7 +3,6 @@ from typing import List, Tuple, Any
 from fastapi import Depends
 import ollama
 from sqlalchemy.orm import Session
-from ollama import Client
 
 from backend.app.api.deps import get_db
 from backend.app.api.v1.endpoints.auth import get_current_user
@@ -12,8 +11,7 @@ from backend.app.core.config import settings
 
 import re
 
-from backend.app.rag.context_retrieval import get_conversation_document_ids, retrieve_top_chunks, \
-    lexical_retrieval_top_chunks, reciprocal_ranking_fusion, get_document_names, conversational_history
+
 from backend.app.rag.schemas.conversation import AgentResponse
 
 
@@ -78,6 +76,7 @@ def build_context(ranked_rrf, conversation_history, document_names, query):
 
 
 def call_llm(messages_list) -> Any:
+    from ollama import Client
     """
     Call the llm with the context
     :param messages_list:
@@ -99,6 +98,7 @@ def call_llm(messages_list) -> Any:
 
 def call_llm_with_stream(messages_list):
     try:
+        from ollama import Client
         client = Client(host=settings.OLLAMA_HOST)
         response = client.chat(
             model=settings.OLLAMA_MODEL,
@@ -137,6 +137,8 @@ def parse_citations(response, ranked_rrf, document_names) -> List[Any]:
 
 
 def generate_rag_response(conversation_id, query, db:Session, user_id):
+    from backend.app.rag.context_retrieval import get_conversation_document_ids, retrieve_top_chunks, \
+        lexical_retrieval_top_chunks, reciprocal_ranking_fusion, get_document_names, conversational_history
     document_ids = get_conversation_document_ids(conversation_id, db)
     document_names = get_document_names(document_ids, db)
     semantic_results = retrieve_top_chunks(query, document_ids, user_id)
@@ -151,6 +153,8 @@ def generate_rag_response(conversation_id, query, db:Session, user_id):
 
 
 def generate_rag_responseStream(conversation_id, query, db:Session, user_id):
+    from backend.app.rag.context_retrieval import get_conversation_document_ids, retrieve_top_chunks, \
+        lexical_retrieval_top_chunks, reciprocal_ranking_fusion, get_document_names, conversational_history
     document_ids = get_conversation_document_ids(conversation_id, db)
     document_names = get_document_names(document_ids, db)
     semantic_results = retrieve_top_chunks(query, document_ids, user_id)

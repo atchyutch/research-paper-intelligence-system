@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from backend.app.api.deps import get_db
 from backend.app.api.v1.endpoints.auth import get_current_user
-from backend.app.db.base import Conversations, ConversationDocuments, Messages
+from backend.app.db.base import Conversations, ConversationDocuments, Messages, Documents
 from backend.app.rag.pipeline import generate_rag_response, generate_rag_responseStream, call_llm_with_stream, \
     parse_citations
 from backend.app.rag.schemas.conversation import ConversationResponse, ConversationCreate, MessageResponse, \
@@ -18,7 +18,7 @@ from backend.app.rag.schemas.document_schemas import DocumentIDs
 conversation_router = APIRouter(prefix="/conversations", tags=["conversations"])
 
 # Retrieves the token from the url header and gives to us
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 @conversation_router.post("/", status_code=201)
 def create_new_conversation(user = Depends(get_current_user), db=Depends(get_db)):
@@ -92,7 +92,7 @@ def get_single_conversation(conversation_id, user = Depends(get_current_user), d
     return response
 
 
-@conversation_router.delete("/delete/{comnversation_id}")
+@conversation_router.delete("/delete/{conversation_id}")
 def delete_conversation(conversation_id, user = Depends(get_current_user), db=Depends(get_db)):
     try:
         db.query(Conversations).filter(Conversations.user_id == user.user_id,
@@ -113,6 +113,9 @@ def delete_conversation(conversation_id, user = Depends(get_current_user), db=De
 def associate_docs(conversation_id, payload: DocumentIDs, user = Depends(get_current_user), db=Depends(get_db)):
     try:
         for id in payload.documents_to_update:
+            doc = db.query(Documents).filter(Documents.document_id == id).first()
+            if not doc:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail = "Document does not exist to associate")
             Conversation_Document = ConversationDocuments(
             conversation_id = conversation_id,
             document_id = id
@@ -127,7 +130,7 @@ def associate_docs(conversation_id, payload: DocumentIDs, user = Depends(get_cur
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except HTTPException as e:
         db.rollback()
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="HTTP error to make change to the conversation's document scope")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
 @conversation_router.get("/{conversation_id}/documents")
@@ -136,8 +139,12 @@ def get_documents(conversation_id, db=Depends(get_db)):
         conversation_docs = db.query(ConversationDocuments).filter(
             ConversationDocuments.conversation_id == conversation_id,
         ).all()
+        if not conversation_docs:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No conversation created in that table")
         document_ids = []
-        for (con_id,doc_id) in conversation_docs:
+        for row in conversation_docs:
+            con_id = row.conversation_id
+            doc_id = row.document_id
             document_ids.append(doc_id)
         return DocumentIDs(documents_to_update=document_ids)
     except IntegrityError as e:
