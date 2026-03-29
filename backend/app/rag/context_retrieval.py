@@ -43,6 +43,8 @@ def lexical_retrieval_top_chunks(query,document_ids:List[int], user_id, db:Sessi
         )
         documents.append(doc)
 
+    if not documents:
+        return []
     lexical_retriever = BM25Retriever.from_documents(documents)
 
     lexical_retriever.k = 4

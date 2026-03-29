@@ -95,8 +95,16 @@ def get_single_conversation(conversation_id, user = Depends(get_current_user), d
 @conversation_router.delete("/delete/{conversation_id}")
 def delete_conversation(conversation_id, user = Depends(get_current_user), db=Depends(get_db)):
     try:
-        db.query(Conversations).filter(Conversations.user_id == user.user_id,
-                                       Conversations.conversation_id == conversation_id).delete()
+        db.query(ConversationDocuments).filter(
+            ConversationDocuments.conversation_id == conversation_id
+        ).delete()
+        db.query(Messages).filter(
+            Messages.conversation_id == conversation_id
+        ).delete()
+        db.query(Conversations).filter(
+            Conversations.user_id == user.user_id,
+            Conversations.conversation_id == conversation_id
+        ).delete()
         db.commit()
     except IntegrityError as e:
         db.rollback()

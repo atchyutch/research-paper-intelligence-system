@@ -4,7 +4,8 @@ from uuid import uuid4
 
 from botocore.exceptions import ClientError
 from fastapi import APIRouter, UploadFile, File, Header, Depends ,HTTPException, status
-import fitz
+# import fitz
+import pymupdf
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from backend.app.api.deps import get_db
@@ -13,7 +14,7 @@ import boto3
 from backend.app.core.r2_client import get_r2_client
 
 from backend.app.core.config import settings
-from backend.app.db.base import Documents, Chunks
+from backend.app.db.base import Documents, Chunks, ConversationDocuments
 from backend.app.rag.schemas.document_schemas import DocumentResponse
 from ingestion.embedding import embeddings_inititation
 
@@ -34,7 +35,7 @@ async def multiple_upload_documents(files: List[UploadFile] = File(),
             validate_file_type(file)
 
             # Extract stuff from the pdf
-            pdf_doc = fitz.open(stream=data, filetype="pdf")
+            pdf_doc = pymupdf.open(stream=data, filetype="pdf")
             page_count = pdf_doc.page_count
             meta = pdf_doc.metadata or {}
             pdf_doc.close()
@@ -61,10 +62,12 @@ async def multiple_upload_documents(files: List[UploadFile] = File(),
             # Upload to R2
             client = get_r2_client(settings.R2_AWS_S3_ENDPOINT, settings.R2_ACCESS_TOKEN, settings.R2_SECRET_ACCESS_KEY)
             try:
+                # boto3 requires capital 'Metadata' and all values must be strings
+                safe_meta = {k: str(v) for k, v in meta.items() if v}
                 client.put_object(Bucket=settings.R2_BUCKET_NAME,
                                   Key=r2_key,
                                   Body=data,
-                                  metadata=meta)
+                                  Metadata=safe_meta)
             except ClientError as e:
                 raise HTTPException(status_code=status.HTTP_406_NOT_ACCEPTABLE, detail=str(e))
 
@@ -178,6 +181,10 @@ def delete_single_doc(document_id, user=Depends(get_current_user), db=Depends(ge
         doc_obj = db.query(Documents).filter(Documents.document_id == document_id, Documents.user_id == user.user_id).one()
         client.delete_object(Bucket=settings.R2_BUCKET_NAME, Key=doc_obj.document_link)
 
+        db.query(ConversationDocuments).filter(
+            ConversationDocuments.document_id == doc_obj.document_id
+        ).delete()
+
         chunks = db.query(Chunks).filter(Chunks.document_id == doc_obj.document_id).all()
 
         pinecone_ids = []
@@ -185,7 +192,7 @@ def delete_single_doc(document_id, user=Depends(get_current_user), db=Depends(ge
             pinecone_ids.append(each.pinecone_id)
         if pinecone_ids:
             vector_store = embeddings_inititation()
-            vector_store.delete(pinecone_ids=pinecone_ids)
+            vector_store.delete(ids=pinecone_ids)
         db.query(Chunks).filter(Chunks.document_id == doc_obj.document_id).delete()
         db.commit()
     except SQLAlchemyError as e:

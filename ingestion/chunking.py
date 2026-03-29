@@ -14,8 +14,9 @@ from backend.app.api.v1.endpoints.auth import get_current_user
 from backend.app.core.r2_client import get_r2_client
 from backend.app.core.config import settings
 from backend.app.db.base import Documents, Users
-import fitz
+# import fitz
 
+import pymupdf
 from backend.app.db.base import Chunks
 from ingestion.embedding import convert_chunks, final_ingestion
 
@@ -49,7 +50,7 @@ def pdf_text(pdf_bytes: bytes) -> List[Dict[str,Any]]:
     :param pdf_bytes:
     :return:
     """
-    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
     pages =[]
     page_count = doc.page_count
     for i in range(page_count):
@@ -187,7 +188,7 @@ def classify_block(cleaned_pages: List[Dict[str,Any]]):
 
 def recursive_splitter(paragraph: str) -> List[str]:
     from langchain_text_splitters import RecursiveCharacterTextSplitter
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size = 1200, overlap = 200 )
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size = 1200)
     pieces = text_splitter.split_text(paragraph)
 
     return pieces
@@ -196,8 +197,9 @@ def recursive_splitter(paragraph: str) -> List[str]:
 def structure_aware_chunking(retrieved_blocks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     chunks = []
     current_chunk = ""
-    current_section = None
+    current_section = "General"
     max_chunk_size = 1200
+    current_page = 1
 
     for each in retrieved_blocks:
         if each.get("type", "") == "Heading":
@@ -211,7 +213,7 @@ def structure_aware_chunking(retrieved_blocks: List[Dict[str, Any]]) -> List[Dic
                     chunks.append({
                         "text": piece,
                         "section": current_section,
-                        "page": each["page_num"],
+                        "page": each["page_num"] if 'each' in dir() else 1,
                         "char_count": len(piece)
                     })
                 continue
@@ -252,7 +254,7 @@ def process_documents(document_id, client, db:Session, user):
         raise HTTPException(status_code=404,detail = "Document not found")
 
     obj = client.get_object(Bucket=settings.R2_BUCKET_NAME,
-                            Key=f"document/{user.user_id}/{document.document_link}")
+                            Key=document.document_link)
 
     pdf_bytes = obj["Body"].read()
     pages_pdf = pdf_text(pdf_bytes)
@@ -277,14 +279,14 @@ def process_documents(document_id, client, db:Session, user):
             page=doc.metadata.get("page"),
             char_count=doc.metadata.get("char_count")
         )
+        db.add(chunk_object)
 
-        try:
-            db.add(chunk_object)
-        except IntegrityError as e:
-            db.rollback()
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-        finally:
-            db.commit()
+    try:
+        db.commit()
+    except IntegrityError as e:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    print(f"[DEBUG] Generated {len(langchain_docs)} chunks for doc {document_id}")
     return {"Status":"Success",
             "Message": "Chunks Created and added to both Vector DB and Backend DB"}
 

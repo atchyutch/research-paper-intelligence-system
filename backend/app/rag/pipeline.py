@@ -144,6 +144,8 @@ def generate_rag_response(conversation_id, query, db:Session, user_id):
     semantic_results = retrieve_top_chunks(query, document_ids, user_id)
     lexical_results = lexical_retrieval_top_chunks(query, document_ids, user_id, db)
     result_rrf = reciprocal_ranking_fusion(semantic_results, lexical_results)
+    if not result_rrf:
+        return "I don't have enough information to answer this question. Please make sure the documents have been processed (chunked and embedded) before chatting.", []
     history = conversational_history(db, conversation_id)
     final_context_message, context_blocks = build_context(result_rrf, history, document_names, query)
     response_llm = call_llm(final_context_message)
@@ -160,6 +162,8 @@ def generate_rag_responseStream(conversation_id, query, db:Session, user_id):
     semantic_results = retrieve_top_chunks(query, document_ids, user_id)
     lexical_results = lexical_retrieval_top_chunks(query, document_ids, user_id, db)
     result_rrf = reciprocal_ranking_fusion(semantic_results, lexical_results)
+    if not result_rrf:
+        return "I don't have enough information to answer this question. Please make sure the documents have been processed (chunked and embedded) before chatting.", []
     history = conversational_history(db, conversation_id)
     final_context_message, context_blocks = build_context(result_rrf, history, document_names, query)
 
