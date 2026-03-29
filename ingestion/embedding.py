@@ -2,8 +2,6 @@ from typing import List, Dict, Any
 
 from fastapi import HTTPException
 from langchain_core.documents import Document
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_pinecone import PineconeVectorStore
 import asyncio
 import os
 from backend.app.core.config import settings
@@ -13,6 +11,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 def embeddings_inititation():
+    from langchain_huggingface import HuggingFaceEmbeddings
     # This embedding mode, takes text/images ie any data and converts them into vectors that will be stored in the VectorDB.
     embeddings_model = HuggingFaceEmbeddings(
         model_name= settings.EMBEDDINGS_MODEL,  # Model we are using for the embedding
@@ -20,6 +19,7 @@ def embeddings_inititation():
     )
 
     # Our vector DB initialisation to store the vectors.
+    from langchain_pinecone import PineconeVectorStore
     vector_store = PineconeVectorStore(index_name=settings.PINECONE_INDEX_NAME, embedding=embeddings_model)
 
     return vector_store

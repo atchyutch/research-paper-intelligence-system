@@ -1,0 +1,32 @@
+# pytest.ini — Configuration for pytest.
+#
+# WHY THIS FILE?
+# Without it, pytest might not find your tests or your app code.
+# This tells pytest where to look and how to behave.
+
+[pytest]
+
+# WHERE TO FIND TESTS
+# pytest will recursively search this directory for test files
+testpaths = tests
+
+# WHAT COUNTS AS A TEST FILE
+# Files matching this pattern are treated as test files
+python_files = test_*.py
+
+# WHAT COUNTS AS A TEST CLASS
+python_classes = Test*
+
+# WHAT COUNTS AS A TEST FUNCTION
+python_functions = test_*
+
+# MAKE SURE PYTHON CAN FIND YOUR APP CODE
+# This adds the project root to Python's import path
+# so "from backend.app.main import app" works in tests
+pythonpath = .
+
+# DEFAULT COMMAND LINE OPTIONS
+# -v  = verbose output (shows each test name)
+# -s  = don't capture print statements (useful for debugging)
+# --tb=short = shorter tracebacks on failure
+addopts = -v --tb=short

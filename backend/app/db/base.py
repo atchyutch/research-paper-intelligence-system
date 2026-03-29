@@ -14,8 +14,8 @@ class Users(Base):
     email: str = Column(String(50), unique=True)
     hashed_password:str = Column(String(100), nullable=False)
 
-    documents = relationship("Documents", back_populates="users")
-    conversations = relationship("Conversations", back_populates="users")
+    documents = relationship("Documents", back_populates="user")
+    conversations = relationship("Conversations", back_populates="user")
     messages = relationship("Messages", back_populates="user")
 
 class Documents(Base):
@@ -31,10 +31,11 @@ class Documents(Base):
     document_link:str = Column(String(1024), nullable=False) # R2_key for the document
     page_count:int = Column(Integer, nullable=False)
     size_bytes:int = Column(Integer, nullable=True)
+    file_hash:str = Column(String(100), nullable=True, unique=True) ##Added a new column
 
 
     user = relationship("Users", back_populates="documents")
-    chunks = relationship("Chunks", back_populates="documents")
+    chunks = relationship("Chunks", back_populates="document")
 
 class Conversations(Base):
     """
@@ -46,7 +47,7 @@ class Conversations(Base):
     created_at: datetime = Column(DateTime, default=datetime.now)
 
     user = relationship("Users", back_populates="conversations")
-    messages = relationship("Messages", back_populates = "conversations", cascade="all, delete-orphan")
+    messages = relationship("Messages", back_populates="conversation", cascade="all, delete-orphan")
 
 
 class ConversationDocuments(Base):

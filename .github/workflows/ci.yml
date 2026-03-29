@@ -1,0 +1,105 @@
+# Name that shows up in the GitHub Actions tab
+name: CI Pipeline
+
+# WHEN does this workflow run?
+on:
+  # Run when code is pushed to main
+  push:
+    branches: [ main ]
+  # Run when a pull request targets main
+  pull_request:
+    branches: [ main ]
+
+# WHAT runs? Each job runs on its own fresh VM.
+jobs:
+  # Job name — shows up in the Actions UI
+  test:
+    # The VM operating system — GitHub provides this for free
+    runs-on: ubuntu-latest
+
+    # Containers that start alongside your job.
+    # We need MySQL for integration tests.
+    services:
+      mysql:
+        # Pull the official MySQL 8.0 image
+        image: mysql:8.0
+        # MySQL reads these on first start to create DB and user
+        env:
+          MYSQL_ROOT_PASSWORD: testpassword
+          MYSQL_DATABASE: test_rpis
+          MYSQL_USER: test_user
+          MYSQL_PASSWORD: test_password
+        # Map container port 3306 to VM port 3306
+        ports:
+          - 3306:3306
+        # Wait until MySQL is ready before running steps
+        # Same concept as healthcheck in docker-compose
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    # Environment variables available to ALL steps below.
+    # Your config.py reads these via os.getenv().
+    # These override whatever is in your .env file.
+    env:
+      MYSQL_USER: test_user
+      MYSQL_PASSWORD: test_password
+      # localhost because MySQL service runs on the same VM
+      MYSQL_HOST: localhost
+      MYSQL_PORT: 3306
+      MYSQL_DB: test_rpis
+      JWT_SECRET: test-secret-key-for-ci
+      JWT_ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: 30
+      OLLAMA_HOST: http://localhost:11434
+      OLLAMA_MODEL: qwen2.5:3b
+      # secrets.X pulls values you stored in GitHub Settings → Secrets
+      # They never appear in logs — GitHub masks them
+      PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
+      PINECONE_INDEX_NAME: ${{ secrets.PINECONE_INDEX_NAME }}
+      EMBEDDINGS_MODEL: intfloat/e5-large-v2
+      R2_AWS_S3_ENDPOINT: ${{ secrets.R2_AWS_S3_ENDPOINT }}
+      R2_ACCESS_TOKEN: ${{ secrets.R2_ACCESS_TOKEN }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+
+    # Steps run in order. If any step fails, the rest are skipped.
+    steps:
+      # Pull your code from the repo onto the VM
+      # Without this, the VM is empty — no access to your files
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Install Python 3.12 on the VM
+      # Matches your local Python and Dockerfile version
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest httpx
+
+      - name: Run tests
+        run: |
+          export PYTHONPATH=$PYTHONPATH:${{ github.workspace }}
+          pytest tests/ -v --tb=short
+
+#      # Install all your pip packages + test dependencies
+#      # Same requirements.txt that Docker uses
+#      - name: Install dependencies
+#        run: |
+#          python -m pip install --upgrade pip
+#          pip install -r requirements.txt
+#          pip install pytest httpx
+#
+#      # Run pytest — discovers all test_*.py files in tests/
+#      # -v shows each test name individually
+#      # --tb=short gives shorter error messages on failure
+#      - name: Run tests
+#        run: pytest tests/ -v --tb=short
